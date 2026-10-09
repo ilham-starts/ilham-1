@@ -149,16 +149,26 @@ jobs:
           SDK_BASE=/usr/local/lib/android/sdk
 
           echo "Restoring SDK platforms..."
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
+            echo "⚠️ Release '$TAG' tidak ditemukan di repo ini."
+            echo "Pastikan kamu sudah buat release dengan tag '$TAG' dan upload asset SDK."
+            echo "Build akan lanjut tanpa SDK restore (pakai SDK bawaan GitHub runner)."
+            exit 0
+          fi
           gh release download "$TAG" \
             --pattern "android-sdk-platforms.tar.gz" \
             --repo "$GITHUB_REPOSITORY" \
-            --dir /tmp/ --clobber
+            --dir /tmp/ --clobber 2>/dev/null || {
+            echo "⚠️ Asset android-sdk-platforms.tar.gz tidak ada di release '$TAG', skip platforms restore"
+          }
 
           mkdir -p /tmp/sdk-restore/platforms /tmp/sdk-restore/build-tools
-          tar -xzf /tmp/android-sdk-platforms.tar.gz \
-            -C /tmp/sdk-restore/ \
-            --no-same-owner 2>/dev/null || true
-          rm -f /tmp/android-sdk-platforms.tar.gz
+          if [ -f /tmp/android-sdk-platforms.tar.gz ]; then
+            tar -xzf /tmp/android-sdk-platforms.tar.gz \
+              -C /tmp/sdk-restore/ \
+              --no-same-owner 2>/dev/null || true
+            rm -f /tmp/android-sdk-platforms.tar.gz
+          fi
 
           for dir in /tmp/sdk-restore/platforms/*/; do
             name=$(basename "$dir")
@@ -492,7 +502,7 @@ jobs:
                       dip_range = '">=9.0.0 <10.1.0"'
                   else:
                       pip_range = '">=10.1.0 <10.2.0"'
-                      dip_range = '">=10.1.1 <11.0.0"'
+                      dip_range = '">=11.0.0"'
 
                   if 'better_player' in content:
                       if nip_uses_win32_5:
@@ -501,7 +511,7 @@ jobs:
                           win32_reg_range = '">=3.0.0 <4.0.0"'
                           print("better_player: upgrading win32 5.x → 6.x tier")
                       pip_range = '">=10.1.0 <10.2.0"'
-                      dip_range = '">=10.1.1 <11.0.0"'
+                      dip_range = '">=11.0.0"'
 
                   all_overrides = {
                       'permission_handler_android': '"<13.0.0"',
@@ -509,6 +519,7 @@ jobs:
                       'win32_registry':      win32_reg_range,
                       'device_info_plus':    dip_range,
                       'package_info_plus':   pip_range,
+                      'network_info_plus':   '">=6.0.1"',
                       'file_picker':         '">=8.3.3"',
                       'dartssh2':            '">=2.9.0"',
                       'dynamic_color':       '"<1.9.0"',
@@ -516,12 +527,13 @@ jobs:
                       'record_linux':        '"^1.3.1"',
                       'google_fonts':        '">=5.0.0 <6.3.3"',
                       'fl_chart':            '">=1.0.0 <1.1.1"',
+                      'chewie':              '">=1.7.0"',
                   }
               else:
                   all_overrides = {
                       'permission_handler_android': '"<13.0.0"',
                       'win32':              '">=5.5.0 <6.0.0"',
-                      'win32_registry':     '">=1.1.5 <2.2.0"',
+                      'win32_registry':     '">=1.1.5 <2.0.0"',
                       'file_picker':        '8.1.7',
                       'dartssh2':           '">=2.9.0"',
                       'open_file':          '"<4.0.0"',
@@ -530,6 +542,7 @@ jobs:
                       'record_linux':       '"^1.3.1"',
                       'google_fonts':       '">=5.0.0 <6.3.3"',
                       'fl_chart':           '">=1.0.0 <1.1.1"',
+                      'chewie':             '">=1.7.0"',
                   }
 
               overrides_to_add = {pkg: ver for pkg, ver in all_overrides.items() if is_used(pkg)}
@@ -981,8 +994,42 @@ jobs:
                     SUCCESS=fatal_xml
                     break 2
                   fi
-                  echo "flutter pub get gagal (exit $PUB_EXIT), skip..."
-                  continue
+
+                  CHEWIE_CONFLICT=$(grep -cE "depends on chewie [0-9.]+ which doesn.t match any versions" \
+                    "$PUB_LOG" 2>/dev/null || true)
+                  if [ "${CHEWIE_CONFLICT:-0}" -gt 0 ]; then
+                    echo "⚠️ chewie exact version tidak ada di pub.dev — override ke >=1.7.0..."
+                    python3 pyhelper.py pin_pkg "chewie" '">=1.7.0"'
+                    fvm flutter pub get 2>&1 | tee "$PUB_LOG"
+                    PUB_EXIT=${PIPESTATUS[0]}
+                    if [ $PUB_EXIT -eq 0 ]; then
+                      echo "pub get OK setelah chewie fix"
+                    else
+                      echo "pub get masih gagal setelah chewie fix, skip..."
+                      continue
+                    fi
+                  fi
+
+                                    WIN32_DIP_CONFLICT=$(grep -cE                     "device_info_plus.*incompatible|incompatible.*device_info_plus|package_info_plus.*incompatible.*device_info_plus|network_info_plus.*incompatible|incompatible.*network_info_plus|wakelock_plus.*incompatible|version solving failed"                     "$PUB_LOG" 2>/dev/null || true)
+                  if [ "${WIN32_DIP_CONFLICT:-0}" -gt 0 ]; then
+                    echo "⚠️ win32/device_info_plus/network_info_plus conflict — force override ke versi compat win32 6.x..."
+                    python3 pyhelper.py pin_pkg "device_info_plus" '">=11.0.0"'
+                    python3 pyhelper.py pin_pkg "network_info_plus" '">=6.0.1"'
+                    refresh_local_properties
+                    fvm flutter pub get 2>&1 | tee "$PUB_LOG"
+                    PUB_EXIT=${PIPESTATUS[0]}
+                    if [ $PUB_EXIT -eq 0 ]; then
+                      echo "pub get OK setelah force device_info_plus/win32 conflict fix"
+                    else
+                      echo "flutter pub get masih gagal setelah conflict fix, skip..."
+                      cat "$PUB_LOG" | tail -10
+                      continue
+                    fi
+                  else
+                    echo "flutter pub get gagal (exit $PUB_EXIT), detail:"
+                    grep -E "Because|incompatible|version solving" "$PUB_LOG" | head -5 || true
+                    continue
+                  fi
                 fi
               fi
 
@@ -1152,8 +1199,11 @@ jobs:
               echo "❌ BUILD GAGAL dengan Flutter $FLUTTER_VER + font_awesome_flutter $FA_VER"
               grep -E "^lib/.*Error:" "$BUILD_LOG" | head -15 \
                 || echo "(tidak ada error compile Dart spesifik)"
-              ERROR_MSG=$(tail -20 "$BUILD_LOG" | grep -E "Error:|FAILURE:" | head -1)
-              echo "Error: $ERROR_MSG"
+              ERROR_MSG=$(tail -30 "$BUILD_LOG" | grep -E "Error:|FAILURE:|error:" | grep -v "^#" | head -3 || true)
+              if [ -z "$ERROR_MSG" ]; then
+                ERROR_MSG=$(tail -5 "$BUILD_LOG" | tr '\n' ' ')
+              fi
+              echo "Last error: $ERROR_MSG"
             done
 
             if [ "$SUCCESS" = "fatal_dart" ] || [ "$SUCCESS" = "fatal_xml" ]; then
