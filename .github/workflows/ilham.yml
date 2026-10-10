@@ -475,24 +475,11 @@ jobs:
                       if nip_lock and int(nip_lock.group(1)) <= 5:
                           nip_uses_win32_5 = True
 
-                  if not nip_uses_win32_5:
-                      sp_match = re.search(
-                          r'share_plus\s*:\s*[\^~\'">=<\s]*(\d+)\.', content, re.M
-                      )
-                      if sp_match and int(sp_match.group(1)) <= 12:
-                          nip_uses_win32_5 = True
-                      elif lock_content:
-                          sp_lock = re.search(
-                              r'share_plus:\n(?:.*\n)*?.*?version:\s*"(\d+)\.',
-                              lock_content
-                          )
-                          if sp_lock and int(sp_lock.group(1)) <= 12:
-                              nip_uses_win32_5 = True
 
                   if nip_uses_win32_5:
-                      print("Detected nip/share_plus requires win32 5.x — pakai win32 5.x + win32_registry 2.x")
+                      print("Detected nip/share_plus requires win32 5.x — pakai win32 5.x + win32_registry 1.x (avoid 2.x API break)")
                       win32_range     = '">=5.10.0 <6.0.0"'
-                      win32_reg_range = '">=2.0.0 <3.0.0"'
+                      win32_reg_range = '">=1.1.5 <2.0.0"'
                   else:
                       print("Tidak ada network_info_plus 4.x — pakai win32 6.x + win32_registry 3.x")
                       win32_range     = '">=6.0.0 <7.0.0"'
@@ -514,13 +501,14 @@ jobs:
                       pip_range = '">=10.1.0 <10.2.0"'
                       dip_range = '">=11.0.0"'
 
+                  nip_override = '">=4.0.0 <6.0.0"' if nip_uses_win32_5 else '">=6.0.1 <8.0.0"'
                   all_overrides = {
                       'permission_handler_android': '"<13.0.0"',
                       'win32':               win32_range,
                       'win32_registry':      win32_reg_range,
                       'device_info_plus':    dip_range,
                       'package_info_plus':   pip_range,
-                      'network_info_plus':   '">=6.0.1 <8.0.0"',
+                      'network_info_plus':   nip_override,
                       'file_picker':         '">=8.3.3"',
                       'dartssh2':            '">=2.9.0"',
                       'dynamic_color':       '"<1.9.0"',
@@ -817,6 +805,11 @@ jobs:
               printf 'distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\ndistributionUrl=https\\://services.gradle.org/distributions/gradle-8.13-all.zip\nnetworkTimeout=10000\nvalidateDistributionUrl=true\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\n'                 > android/gradle/wrapper/gradle-wrapper.properties
             fi
             echo "sdk.dir=$ANDROID_SDK_DIR" > android/local.properties
+            if [ -f android/gradle.properties ]; then
+              grep -q "org.gradle.jvmargs" android/gradle.properties ||                 echo "\norg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError" >> android/gradle.properties
+            else
+              echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError" > android/gradle.properties
+            fi
             FLUTTER_ROOT=$(fvm flutter --version --machine 2>/dev/null \
               | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('flutterRoot',''))" \
               2>/dev/null || echo "")
@@ -1096,8 +1089,8 @@ jobs:
               ICONDATA_ERR=$(grep -cE "IconData.*can't be extended|can't be extended.*because it's a final class" \
                 "$BUILD_LOG" 2>/dev/null || true)
               if [ "${ICONDATA_ERR:-0}" -gt 0 ]; then
-                echo "FontAwesome tidak compatible dengan Flutter $FLUTTER_VER (IconData final), skip Flutter versi ini..."
-                break
+                echo "⚠️ FA $FA_VER: IconData final class conflict — coba FA version lebih lama..."
+                continue
               fi
 
               if [ "$APPLY_PH_OVERRIDE" != true ]; then
