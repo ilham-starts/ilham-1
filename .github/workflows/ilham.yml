@@ -953,7 +953,7 @@ jobs:
             fi
           FUNCSEOF
           chmod +x build_funcs.sh
-          echo "build_funcs.sh ditulis ($(wc -c < build_funcs.sh) bytes)"
+          echo "build_funcs.sh ditulis di: $(pwd)/build_funcs.sh ($(wc -c < build_funcs.sh) bytes)"
 
       - name: Build with Flutter Version Pool Retry
         id: build_retry
@@ -975,7 +975,12 @@ jobs:
           export PATH="$PATH:$HOME/.pub-cache/bin"
 
 
-          source build_funcs.sh
+          if [ ! -f "$PROJECT_ROOT/build_funcs.sh" ]; then
+            echo "❌ build_funcs.sh tidak ditemukan di $PROJECT_ROOT"
+            echo "Pastikan step 'Write Bash Function Helpers' sukses sebelum step ini"
+            exit 1
+          fi
+          source "$PROJECT_ROOT/build_funcs.sh"
 
                     FA_VERSIONS_TO_TRY="10.9.1 10.9.0 10.8.0 10.7.0"
 
