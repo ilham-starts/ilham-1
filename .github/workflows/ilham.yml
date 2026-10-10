@@ -908,49 +908,6 @@ jobs:
             fvm flutter pub get || true
             return 0
           }
-
-          for FLUTTER_VER in $CANDIDATES; do
-            ATTEMPT=$((ATTEMPT + 1))
-            TOTAL=$(echo $CANDIDATES | wc -w)
-
-            echo ""
-            echo "════════════════════════════════════════════"
-            echo "Attempt $ATTEMPT/$TOTAL - Flutter $FLUTTER_VER"
-            echo "════════════════════════════════════════════"
-
-            cd "$PROJECT_ROOT"
-
-            if [ ! -f pubspec.yaml.orig_backup ]; then
-              cp pubspec.yaml pubspec.yaml.orig_backup
-            fi
-            cp pubspec.yaml.orig_backup pubspec.yaml
-            rm -f pubspec.lock
-
-            if [ ! -d "$FVM_CACHE_DIR/$FLUTTER_VER" ]; then
-              echo "Flutter $FLUTTER_VER tidak ada di cache, install fresh..."
-              fvm install $FLUTTER_VER 2>&1 | tail -5
-            else
-              echo "Flutter $FLUTTER_VER tersedia dari restore ✅"
-            fi
-
-            fvm use $FLUTTER_VER --force 2>&1 | tail -3
-            fvm flutter --version
-
-            fix_agp_kotlin "$FLUTTER_VER"
-            patch_launcher_icons
-
-            echo "Pre-resolve: flutter pub get tanpa override (generate lock)..."
-            fvm flutter pub get 2>&1 | tail -10 \
-              || echo "Pre-resolve gagal, selective override berdasarkan pubspec.yaml saja"
-
-            pin_safe_overrides
-            APPLY_PH_OVERRIDE=true
-            refresh_local_properties
-
-            if [ "$ATTEMPT" -gt 1 ]; then
-              rm -rf build .dart_tool android/build android/app/build
-              fvm flutter clean 2>/dev/null || true
-            fi
           FUNCSEOF
           chmod +x build_funcs.sh
           echo "build_funcs.sh ditulis di: $(pwd)/build_funcs.sh ($(wc -c < build_funcs.sh) bytes)"
@@ -982,7 +939,50 @@ jobs:
           fi
           source "$PROJECT_ROOT/build_funcs.sh"
 
-                    FA_VERSIONS_TO_TRY="10.9.1 10.9.0 10.8.0 10.7.0"
+          for FLUTTER_VER in $CANDIDATES; do
+            ATTEMPT=$((ATTEMPT + 1))
+            TOTAL=$(echo $CANDIDATES | wc -w)
+
+            echo ""
+            echo "════════════════════════════════════════════"
+            echo "Attempt $ATTEMPT/$TOTAL - Flutter $FLUTTER_VER"
+            echo "════════════════════════════════════════════"
+
+            cd "$PROJECT_ROOT"
+
+            if [ ! -f pubspec.yaml.orig_backup ]; then
+              cp pubspec.yaml pubspec.yaml.orig_backup
+            fi
+            cp pubspec.yaml.orig_backup pubspec.yaml
+            rm -f pubspec.lock
+
+            if [ ! -d "$FVM_CACHE_DIR/$FLUTTER_VER" ]; then
+              echo "Flutter $FLUTTER_VER tidak ada di cache, skip (run ilham-setup.yml dulu)..."
+              continue
+            else
+              echo "Flutter $FLUTTER_VER tersedia dari restore ✅"
+            fi
+
+            fvm use $FLUTTER_VER --force 2>&1 | tail -3
+            fvm flutter --version
+
+            fix_agp_kotlin "$FLUTTER_VER"
+            patch_launcher_icons
+
+            echo "Pre-resolve: flutter pub get tanpa override (generate lock)..."
+            fvm flutter pub get 2>&1 | tail -10 \
+              || echo "Pre-resolve gagal, selective override berdasarkan pubspec.yaml saja"
+
+            pin_safe_overrides
+            APPLY_PH_OVERRIDE=true
+            refresh_local_properties
+
+            if [ "$ATTEMPT" -gt 1 ]; then
+              rm -rf build .dart_tool android/build android/app/build
+              fvm flutter clean 2>/dev/null || true
+            fi
+
+            FA_VERSIONS_TO_TRY="10.9.1 10.9.0 10.8.0 10.7.0"
 
             for FA_VER in $FA_VERSIONS_TO_TRY; do
               echo ""
