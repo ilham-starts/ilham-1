@@ -791,24 +791,12 @@ jobs:
           HELPEREOF
           echo "pyhelper.py ditulis"
 
-      - name: Build with Flutter Version Pool Retry
-        id: build_retry
-        timeout-minutes: 85
+
+      - name: Write Bash Function Helpers
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
+          cat > build_funcs.sh << 'FUNCSEOF'
           set +e
-
-          PROJECT_ROOT="${{ env.PROJECT_ROOT }}"
-          CANDIDATES="${{ env.FLUTTER_CANDIDATES }}"
-          FVM_CACHE_DIR="${{ env.FVM_CACHE_DIR }}"
-          ATTEMPT=0
-          SUCCESS=false
-          FLUTTER_VERSION_USED=""
-          FA_VERSION_USED=""
-          MAX_SDK_CEILING=37
-          APPLY_PH_OVERRIDE=false
-          ANDROID_SDK_DIR="$ANDROID_HOME"
-
-          export PATH="$PATH:$HOME/.pub-cache/bin"
 
           refresh_local_properties() {
             GRADLE_KTS_RT="android/app/build.gradle.kts"
@@ -963,8 +951,33 @@ jobs:
               rm -rf build .dart_tool android/build android/app/build
               fvm flutter clean 2>/dev/null || true
             fi
+          FUNCSEOF
+          chmod +x build_funcs.sh
+          echo "build_funcs.sh ditulis ($(wc -c < build_funcs.sh) bytes)"
 
-            FA_VERSIONS_TO_TRY="10.9.1 10.9.0 10.8.0 10.7.0"
+      - name: Build with Flutter Version Pool Retry
+        id: build_retry
+        timeout-minutes: 85
+        run: |
+          set +e
+
+          PROJECT_ROOT="${{ env.PROJECT_ROOT }}"
+          CANDIDATES="${{ env.FLUTTER_CANDIDATES }}"
+          FVM_CACHE_DIR="${{ env.FVM_CACHE_DIR }}"
+          ATTEMPT=0
+          SUCCESS=false
+          FLUTTER_VERSION_USED=""
+          FA_VERSION_USED=""
+          MAX_SDK_CEILING=37
+          APPLY_PH_OVERRIDE=false
+          ANDROID_SDK_DIR="$ANDROID_HOME"
+
+          export PATH="$PATH:$HOME/.pub-cache/bin"
+
+
+          source build_funcs.sh
+
+                    FA_VERSIONS_TO_TRY="10.9.1 10.9.0 10.8.0 10.7.0"
 
             for FA_VER in $FA_VERSIONS_TO_TRY; do
               echo ""
